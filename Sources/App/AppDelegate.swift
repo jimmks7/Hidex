@@ -167,6 +167,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, HIDPPSessionDelegate {
         menu.addItem(infoItem("4↑  \(cfg.fourFingerUp.displayName)"))
         menu.addItem(infoItem("4↓  \(cfg.fourFingerDown.displayName)"))
         menu.addItem(infoItem(L10n.twoFingerNativeScroll))
+        if cfg.doubleTapMaximize {
+            menu.addItem(infoItem(L10n.t("2× toque  Maximizar", "2× tap  Maximize")))
+        }
 
         menu.addItem(.separator())
 

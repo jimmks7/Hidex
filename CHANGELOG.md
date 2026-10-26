@@ -12,6 +12,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Additional HID++ touchpad WPIDs beyond the documented T650 profile
 - Notarized Developer ID builds (optional maintainer path)
 
+## [2.0.5] — 2026-10-26
+
+### Added
+
+- 1-finger double-tap → maximize focused window (fill visible screen via Accessibility; Zoom fallback)
+- Preferences: independent 1-finger vs 2-finger tap/scroll controls
+
+### Fixed
+
+- 2-finger scroll no longer fires right-click on lift: keep `scrollIntent` when fingers lift 2→1, path-length intent, min frames/duration for real taps, ~0.55 s cooldown against ghost re-contacts after scroll
+- Stricter default 2-finger tap window (≈220 ms / move 16) so short scrolls are not classified as right-click
+
+## [2.0.4] — 2026-10-26
+
+### Note
+
+Superseded by 2.0.5 (same-day tap/scroll and maximize refinements).
+
 ## [2.0.3] — 2026-10-26
 
 ### Changed
@@ -76,7 +94,9 @@ Superseded by 2.0.3 (same-day fixes bundled for release).
 
 - Published briefly under a previous account/name; superseded by Hidex 2.0.0
 
-[Unreleased]: https://github.com/jimmks7/Hidex/compare/v2.0.3...HEAD
+[Unreleased]: https://github.com/jimmks7/Hidex/compare/v2.0.5...HEAD
+[2.0.5]: https://github.com/jimmks7/Hidex/releases/tag/v2.0.5
+[2.0.4]: https://github.com/jimmks7/Hidex/releases/tag/v2.0.4
 [2.0.3]: https://github.com/jimmks7/Hidex/releases/tag/v2.0.3
 [2.0.2]: https://github.com/jimmks7/Hidex/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/jimmks7/Hidex/compare/v2.0.0...v2.0.1

@@ -355,8 +355,126 @@ enum InputInjector {
 
             case .lookup:
                 postShortcut(key: 0x02, flags: [.maskControl, .maskCommand])
+
+            case .maximize:
+                maximizeFrontWindow()
             }
         }
+    }
+
+    /// Fill the focused window to the screen’s visible frame (true maximize).
+    /// Falls back to AX Zoom button. Needs Accessibility.
+    private static func maximizeFrontWindow() {
+        if maximizeFrontWindowAX() {
+            AppLog.log("Inject Maximize (AX fill) OK")
+            return
+        }
+        // Fallback: green Zoom button via System Events
+        let source = """
+        tell application "System Events"
+          set frontProc to first application process whose frontmost is true
+          tell frontProc
+            if (count of windows) is 0 then return
+            tell window 1
+              try
+                click (first button whose subrole is "AXZoomButton")
+              end try
+            end tell
+          end tell
+        end tell
+        """
+        var error: NSDictionary?
+        guard let script = NSAppleScript(source: source) else {
+            AppLog.log("Maximize: NSAppleScript create failed")
+            return
+        }
+        _ = script.executeAndReturnError(&error)
+        if let error {
+            let num = error[NSAppleScript.errorNumber] as? Int ?? -1
+            let msg = (error[NSAppleScript.errorMessage] as? String) ?? "\(error)"
+            AppLog.log("Maximize err=\(num) \(msg.prefix(140))")
+            if num == 1002 {
+                noteSpacesFailureOnce()
+            }
+        } else {
+            AppLog.log("Inject Maximize (AX Zoom fallback) OK")
+        }
+    }
+
+    /// Resize focused window to the screen’s visible frame (AX top-left coords).
+    @discardableResult
+    private static func maximizeFrontWindowAX() -> Bool {
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedAppRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            systemWide, kAXFocusedApplicationAttribute as CFString, &focusedAppRef
+        ) == .success,
+        let focusedApp = focusedAppRef else {
+            AppLog.log("Maximize AX: no focused app")
+            return false
+        }
+        let app = focusedApp as! AXUIElement
+
+        var windowRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            app, kAXFocusedWindowAttribute as CFString, &windowRef
+        ) == .success,
+        let windowRef,
+        CFGetTypeID(windowRef) == AXUIElementGetTypeID() else {
+            AppLog.log("Maximize AX: no focused window")
+            return false
+        }
+        let window = windowRef as! AXUIElement
+
+        var posRef: CFTypeRef?
+        var sizeRef: CFTypeRef?
+        _ = AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &posRef)
+        _ = AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeRef)
+
+        var origin = CGPoint.zero
+        var currentSize = CGSize.zero
+        if let posRef {
+            AXValueGetValue(posRef as! AXValue, .cgPoint, &origin)
+        }
+        if let sizeRef {
+            AXValueGetValue(sizeRef as! AXValue, .cgSize, &currentSize)
+        }
+
+        // Map AX top-left point → Cocoa, then pick the screen.
+        let primaryH = NSScreen.screens.first?.frame.height ?? 0
+        let cocoaPoint = NSPoint(x: origin.x, y: primaryH - origin.y)
+        let screen = NSScreen.screens.first { NSMouseInRect(cocoaPoint, $0.frame, false) }
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+        guard let screen else { return false }
+
+        let vis = screen.visibleFrame
+        let axOrigin = CGPoint(x: vis.origin.x, y: primaryH - vis.origin.y - vis.size.height)
+        let axSize = CGSize(width: vis.size.width, height: vis.size.height)
+
+        let nearlyFilled =
+            abs(currentSize.width - axSize.width) < 48
+            && abs(currentSize.height - axSize.height) < 48
+            && abs(origin.x - axOrigin.x) < 48
+            && abs(origin.y - axOrigin.y) < 48
+        if nearlyFilled {
+            var zoomed: CFTypeRef?
+            if AXUIElementCopyAttributeValue(window, "AXZoomed" as CFString, &zoomed) == .success {
+                let isZoomed = (zoomed as? Bool) ?? CFBooleanGetValue((zoomed as! CFBoolean))
+                let newVal: CFBoolean = isZoomed ? kCFBooleanFalse : kCFBooleanTrue
+                if AXUIElementSetAttributeValue(window, "AXZoomed" as CFString, newVal) == .success {
+                    return true
+                }
+            }
+        }
+
+        var o = axOrigin
+        var s = axSize
+        guard let posVal = AXValueCreate(.cgPoint, &o),
+              let sizeVal = AXValueCreate(.cgSize, &s) else { return false }
+        let pOK = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, posVal) == .success
+        let sOK = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeVal) == .success
+        return pOK && sOK
     }
 
     /// Launchpad.app was removed on some macOS 27 installs — try paths, Dock, then App Exposé.

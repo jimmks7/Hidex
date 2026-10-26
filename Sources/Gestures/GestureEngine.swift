@@ -32,6 +32,13 @@ final class GestureEngine {
     private var swipeFired = false
     private var pinchStartDistance: CGFloat?
     private var pinchFired = false
+    /// 2-finger contact already moved enough to count as scroll — never right-click on lift.
+    private var twoFingerScrollIntent = false
+    /// Sum of per-frame centroid motion (catches scroll even if end ≈ start).
+    private var twoFingerPathLength: CGFloat = 0
+    private var twoFingerFrameCount = 0
+    /// After a real 2F scroll, suppress right-click from lift/re-contact ghosts.
+    private var suppressTwoFingerTapUntil = Date.distantPast
     private var physicalButtonWasDown = false
     private var lastFingerCount = 0
     /// Peak fingers during the current contact (so 1→2→3 still counts as 3-finger swipe).
@@ -41,6 +48,10 @@ final class GestureEngine {
     /// than summing noisy per-frame deltas.
     private var startCentroid: CGPoint?
     private var inContact = false
+
+    /// First 1-finger soft tap awaiting a second for double-tap → maximize.
+    private var lastSingleTapTime: Date?
+    private var lastSingleTapPoint: CGPoint?
 
     func applyInfo(_ info: TouchPadRawInfo) {
         if info.xSize > 0 { tracker.xSize = CGFloat(info.xSize) }
@@ -89,8 +100,18 @@ final class GestureEngine {
             width: max(-80, min(80, delta.width)),
             height: max(-80, min(80, delta.height))
         )
+        let moveMag = hypot(safeDelta.width, safeDelta.height)
         accumulated.width += safeDelta.width
         accumulated.height += safeDelta.height
+
+        if mode == .twoFinger || peakFingerCount >= 2 {
+            twoFingerFrameCount += 1
+            twoFingerPathLength += moveMag
+            if sessionMaxMove >= config.twoFingerScrollIntentMove
+                || twoFingerPathLength >= config.twoFingerScrollIntentMove {
+                twoFingerScrollIntent = true
+            }
+        }
 
         // Promote to swipe mode if peak reached 3+ mid-gesture (e.g. landed as 2 then 3rd).
         if peakFingerCount >= 3 && mode != .swiping {
@@ -116,6 +137,7 @@ final class GestureEngine {
                 let diff = now - start
                 if abs(diff) > config.pinchThreshold {
                     pinchFired = true
+                    twoFingerScrollIntent = true
                     InputInjector.perform(diff > 0 ? .zoomIn : .zoomOut)
                     return
                 }
@@ -191,15 +213,22 @@ final class GestureEngine {
 
     private func beginGesture(fingerCount: Int, peak: Int) {
         let previousMode = mode
-        // Keep swipe accumulation when climbing 2→3; reset otherwise.
+        // Keep swipe accumulation when climbing 2→3.
         let climbingToSwipe = previousMode == .swiping || (previousMode == .twoFinger && peak >= 3)
-        if !climbingToSwipe {
+        // Lifting fingers after a scroll must NOT clear scrollIntent — that was
+        // causing a fresh "tap" window and a right-click on release.
+        let lifting = lastFingerCount > 0 && fingerCount < lastFingerCount
+
+        if !climbingToSwipe && !lifting {
             touchStartTime = Date()
             accumulated = .zero
             sessionMaxMove = 0
             startCentroid = currentCentroid()
             swipeFired = false
             pinchFired = false
+            twoFingerScrollIntent = false
+            twoFingerPathLength = 0
+            twoFingerFrameCount = 0
             pinchStartDistance = tracker.pinchDistance()
         }
         inContact = true
@@ -232,30 +261,36 @@ final class GestureEngine {
         inContact = false
         let duration = Date().timeIntervalSince(touchStartTime)
         let travel = sessionMaxMove
-        // Use peak at lift; a 2→1 release still counts as two-finger tap.
+        let tapPoint = startCentroid
         let fingers = peakFingerCount
-        let isTap = duration < config.tapMaxDuration
-            && travel < config.tapMaxMove
-            && !swipeFired
-            && !pauseInjection
+        let hadScroll = twoFingerScrollIntent || twoFingerPathLength >= config.twoFingerScrollIntentMove
 
-        if isTap {
+        if !swipeFired && !pauseInjection {
             if fingers == 1, config.tapToClick {
-                InputInjector.click(button: .left)
-                AppLog.log("Tap 1F → clic izquierdo (\(String(format: "%.0f", duration * 1000))ms move=\(Int(travel)))")
-            } else if fingers == 2, config.twoFingerTap, !pinchFired {
-                InputInjector.click(button: .right)
-                AppLog.log("Tap 2F → clic derecho (\(String(format: "%.0f", duration * 1000))ms move=\(Int(travel)))")
-            } else if fingers == 3, config.tapToClick {
+                handleOneFingerTap(duration: duration, travel: travel, point: tapPoint)
+            } else if fingers == 2, config.twoFingerTap {
+                handleTwoFingerTap(
+                    duration: duration,
+                    travel: travel,
+                    path: twoFingerPathLength,
+                    frames: twoFingerFrameCount,
+                    hadScroll: hadScroll
+                )
+            } else if fingers == 3, config.tapToClick,
+                      duration < config.tapMaxDuration, travel < config.tapMaxMove {
                 InputInjector.click(button: .center)
                 AppLog.log("Tap 3F → clic medio")
             }
-        } else if fingers == 1 || fingers == 2 {
+        } else if (fingers == 1 || fingers == 2) && !pauseInjection {
             AppLog.log(
                 "Tap skip \(fingers)F dur=\(String(format: "%.0f", duration * 1000))ms " +
-                "move=\(Int(travel)) lim=\(Int(config.tapMaxDuration * 1000))ms/\(Int(config.tapMaxMove))" +
-                (swipeFired ? " swipe" : "") + (pauseInjection ? " paused" : "")
+                "move=\(Int(travel))" +
+                (swipeFired ? " swipe" : "")
             )
+        }
+
+        if hadScroll || (fingers >= 2 && travel >= config.twoFingerScrollIntentMove) {
+            suppressTwoFingerTapUntil = Date().addingTimeInterval(config.twoFingerTapCooldownAfterScroll)
         }
 
         mode = .idle
@@ -267,7 +302,97 @@ final class GestureEngine {
         swipeFired = false
         pinchStartDistance = nil
         pinchFired = false
+        twoFingerScrollIntent = false
+        twoFingerPathLength = 0
+        twoFingerFrameCount = 0
         InputInjector.setLeftButton(false)
+    }
+
+    private func handleOneFingerTap(duration: TimeInterval, travel: CGFloat, point: CGPoint?) {
+        guard duration < config.tapMaxDuration, travel < config.tapMaxMove else {
+            lastSingleTapTime = nil
+            lastSingleTapPoint = nil
+            AppLog.log(
+                "Tap skip 1F dur=\(String(format: "%.0f", duration * 1000))ms " +
+                "move=\(Int(travel)) lim=\(Int(config.tapMaxDuration * 1000))ms/\(Int(config.tapMaxMove))"
+            )
+            return
+        }
+
+        let now = Date()
+        if config.doubleTapMaximize,
+           let prevT = lastSingleTapTime,
+           let prevP = lastSingleTapPoint,
+           let point,
+           now.timeIntervalSince(prevT) <= config.doubleTapInterval,
+           hypot(point.x - prevP.x, point.y - prevP.y) <= config.doubleTapSlop {
+            lastSingleTapTime = nil
+            lastSingleTapPoint = nil
+            // Skip second left-click; fill/maximize the front window.
+            InputInjector.perform(.maximize)
+            AppLog.log(
+                "Double tap 1F → maximizar " +
+                "(\(String(format: "%.0f", now.timeIntervalSince(prevT) * 1000))ms gap)"
+            )
+            return
+        }
+
+        InputInjector.click(button: .left)
+        AppLog.log("Tap 1F → clic izquierdo (\(String(format: "%.0f", duration * 1000))ms move=\(Int(travel)))")
+        lastSingleTapTime = now
+        lastSingleTapPoint = point
+    }
+
+    /// Right-click only for a quick, nearly stationary 2-finger plant.
+    private func handleTwoFingerTap(
+        duration: TimeInterval,
+        travel: CGFloat,
+        path: CGFloat,
+        frames: Int,
+        hadScroll: Bool
+    ) {
+        let maxDur = config.twoFingerTapMaxDuration
+        let maxMove = config.twoFingerTapMaxMove
+        let now = Date()
+
+        if now < suppressTwoFingerTapUntil {
+            AppLog.log(
+                "Tap skip 2F cooldown " +
+                "(\(String(format: "%.0f", (suppressTwoFingerTapUntil.timeIntervalSince(now)) * 1000))ms left) " +
+                "dur=\(String(format: "%.0f", duration * 1000))ms move=\(Int(travel))"
+            )
+            lastSingleTapTime = nil
+            lastSingleTapPoint = nil
+            return
+        }
+
+        // Ghost re-contacts after scroll are often <15ms / ≤2 frames / path≈0.
+        let isTap = !pinchFired
+            && !hadScroll
+            && !twoFingerScrollIntent
+            && duration >= 0.035
+            && duration < maxDur
+            && travel < maxMove
+            && path < maxMove
+            && frames >= 3
+
+        if isTap {
+            InputInjector.click(button: .right)
+            AppLog.log(
+                "Tap 2F → clic derecho (\(String(format: "%.0f", duration * 1000))ms " +
+                "move=\(Int(travel)) path=\(Int(path)) frames=\(frames))"
+            )
+        } else {
+            AppLog.log(
+                "Tap skip 2F dur=\(String(format: "%.0f", duration * 1000))ms " +
+                "move=\(Int(travel)) path=\(Int(path)) frames=\(frames) " +
+                "lim=\(Int(maxDur * 1000))ms/\(Int(maxMove))" +
+                (hadScroll || twoFingerScrollIntent ? " scrollIntent" : "") +
+                (pinchFired ? " pinch" : "")
+            )
+        }
+        lastSingleTapTime = nil
+        lastSingleTapPoint = nil
     }
 
     private func handlePhysicalButton(frame: TouchPadRawFrame, fingerCount: Int) {

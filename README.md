@@ -11,7 +11,7 @@ Gestos multitouch en **espacio de usuario** para touchpads inalámbricos **HID++
 **No afiliado a Logitech ni a Apple.** Marca propia: [Docs/BRAND.md](Docs/BRAND.md).
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.0.3-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.0.5-blue.svg)](CHANGELOG.md)
 [![macOS 13+](https://img.shields.io/badge/macOS-13%2B-lightgrey.svg)](#requisitos)
 [![Universal](https://img.shields.io/badge/binary-arm64%20%7C%20x86__64-success.svg)](#compilar)
 
@@ -29,8 +29,9 @@ macOS trata muchos touchpads Logitech Unifying como un ratón básico: mover y h
 |--------|---------------------|
 | 1 dedo mover | Puntero nativo (modo dual HID++) |
 | Toque 1 dedo | Clic izquierdo *(configurable)* |
+| Doble toque 1 dedo | Maximizar ventana (rellena pantalla) |
 | 2 dedos | Scroll nativo |
-| Toque 2 dedos | Clic derecho *(configurable)* |
+| Toque 2 dedos | Clic derecho *(umbrales estrictos vs scroll)* |
 | 3 dedos ↑ | Mission Control (abrir) |
 | 3 dedos ↓ | Cerrar Mission Control |
 | 3 / 4 dedos ←→ | Cambiar Spaces |
@@ -38,11 +39,11 @@ macOS trata muchos touchpads Logitech Unifying como un ratón básico: mover y h
 | 4 dedos ↓ | Launchpad o App Exposé |
 | Clic físico | Botón del pad (HID nativo) |
 
-Extras: icono de menú tipo **touchpad** con **% de batería**, preferencias, Gesture Lab, inicio al encender.
+Extras: icono de menú tipo **touchpad**, **% de batería en el menú**, preferencias, Gesture Lab, inicio al encender. Compatible con teclado Unifying (p. ej. MX Keys) en el mismo receptor.
 
 ### Icono de la barra de menú
 
-No es un icono genérico de “batería del Mac”. Hidex dibuja una **silueta de touchpad** (con contactos multitouch y una barra de carga). El **porcentaje** y la **versión** (`Hidex 2.0.3 (7)`) están en el menú al hacer clic.
+No es un icono genérico de “batería del Mac”. Hidex dibuja una **silueta de touchpad** (con contactos multitouch y una barra de carga). El **porcentaje** y la **versión** (`Hidex 2.0.5 (9)`) están en el menú al hacer clic.
 
 ### Requisitos
 
@@ -74,7 +75,7 @@ No es un icono genérico de “batería del Mac”. Hidex dibuja una **silueta d
 ### Uso diario
 
 1. Conecta el Unifying y enciende el touchpad.  
-2. Abre **Hidex** (icono touchpad + `%` en la barra de menú).  
+2. Abre **Hidex** (icono touchpad en la barra de menú; batería dentro del menú).  
 3. Ajusta gestos en **Preferencias…**  
 4. Si Spaces fallan: **Diagnosticar Spaces…** / **Gesture Lab**.  
 5. Log: `~/.hidex.log`  
@@ -140,8 +141,9 @@ macOS often exposes Logitech Unifying touchpads as a basic mouse: move and click
 |---------|----------------|
 | 1-finger move | Native pointer (dual HID++ mode) |
 | 1-finger tap | Left click *(configurable)* |
+| 1-finger double-tap | Maximize window (fill screen) |
 | 2 fingers | Native scroll |
-| 2-finger tap | Right click *(configurable)* |
+| 2-finger tap | Right click *(strict thresholds vs scroll)* |
 | 3-finger ↑ | Mission Control (open) |
 | 3-finger ↓ | Dismiss Mission Control |
 | 3 / 4-finger ←→ | Switch Spaces |
@@ -149,11 +151,11 @@ macOS often exposes Logitech Unifying touchpads as a basic mouse: move and click
 | 4-finger ↓ | Launchpad or App Exposé |
 | Physical click | Pad button (native HID) |
 
-Extras: **touchpad-style** menu icon with live **battery %**, preferences, Gesture Lab, launch at login.
+Extras: **touchpad-style** menu icon, **battery % in the menu**, preferences, Gesture Lab, launch at login. Works alongside a Unifying keyboard (e.g. MX Keys) on the same receiver.
 
 ### Menu bar icon
 
-Not a generic Mac “battery” glyph. Hidex draws a **touchpad silhouette** (multitouch contacts + charge bar). Battery **percentage** and **version** (`Hidex 2.0.3 (7)`) live in the menu.
+Not a generic Mac “battery” glyph. Hidex draws a **touchpad silhouette** (multitouch contacts + charge bar). Battery **percentage** and **version** (`Hidex 2.0.5 (9)`) live in the menu.
 
 ### Requirements
 
